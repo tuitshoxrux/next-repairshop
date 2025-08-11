@@ -10,8 +10,6 @@ import { SelectWithLabel } from '@/components/inputs/SelectWithLabel';
 import { TextAreaWithLabel } from '@/components/inputs/TextAreaWithLabel';
 import { CheckboxWithLabel } from '@/components/inputs/CheckboxWithLabel';
 
-import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs';
-
 import { StatesArray } from '@/constants/StatesArray';
 
 import {
@@ -20,29 +18,55 @@ import {
     type selectCustomerSchemaType,
 } from '@/zod-schemas/customer';
 
+import { useAction } from 'next-safe-action/hooks';
+import { saveCustomerAction } from '@/app/actions/saveCustomerAction';
+import { toast } from 'sonner';
+import { LoaderCircle } from 'lucide-react';
+import { DisplayServerActionResponse } from '@/components/DisplayServerActionResponse';
+
+import { useSearchParams } from 'next/navigation';
+import { useEffect } from 'react';
+
 type Props = {
     customer?: selectCustomerSchemaType;
+    isManager?: boolean | undefined;
 };
 
-export default function CustomerForm({ customer }: Props) {
-    const { getPermission, isLoading } = useKindeBrowserClient();
+export default function CustomerForm({ customer, isManager = false }: Props) {
+    const searchParams = useSearchParams();
+    const hasCustomerId = searchParams.has('customerId');
 
-    const isManager = !isLoading && getPermission('manager')?.isGranted;
-
-    const defaultValues: insertCustomerSchemaType = {
-        id: customer?.id ?? 0,
-        firstName: customer?.firstName ?? '',
-        lastName: customer?.lastName ?? '',
-        address1: customer?.address1 ?? '',
-        address2: customer?.address2 ?? '',
-        city: customer?.city ?? '',
-        state: customer?.state ?? '',
-        zip: customer?.zip ?? '',
-        phone: customer?.phone ?? '',
-        email: customer?.email ?? '',
-        notes: customer?.notes ?? '',
-        active: customer?.active ?? true,
+    const emptyValues: insertCustomerSchemaType = {
+        id: 0,
+        firstName: '',
+        lastName: '',
+        address1: '',
+        address2: '',
+        city: '',
+        state: '',
+        zip: '',
+        phone: '',
+        email: '',
+        notes: '',
+        active: true,
     };
+
+    const defaultValues: insertCustomerSchemaType = hasCustomerId
+        ? {
+              id: customer?.id ?? 0,
+              firstName: customer?.firstName ?? '',
+              lastName: customer?.lastName ?? '',
+              address1: customer?.address1 ?? '',
+              address2: customer?.address2 ?? '',
+              city: customer?.city ?? '',
+              state: customer?.state ?? '',
+              zip: customer?.zip ?? '',
+              phone: customer?.phone ?? '',
+              email: customer?.email ?? '',
+              notes: customer?.notes ?? '',
+              active: customer?.active ?? true,
+          }
+        : emptyValues;
 
     const form = useForm<insertCustomerSchemaType>({
         mode: 'onBlur',
@@ -50,12 +74,37 @@ export default function CustomerForm({ customer }: Props) {
         defaultValues,
     });
 
+    useEffect(() => {
+        form.reset(hasCustomerId ? defaultValues : emptyValues);
+    }, [searchParams.get('customerId')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const {
+        execute: executeSave,
+        result: saveResult,
+        isPending: isSaving,
+        reset: resetSaveAction,
+    } = useAction(saveCustomerAction, {
+        onSuccess({ data }) {
+            if (data?.message) {
+                toast.success(data.message, {
+                    description: 'Customer saved successfully! 🎉',
+                });
+            }
+        },
+        onError() {
+            toast.error('Save Failed', {
+                description: 'There was an error saving the customer.',
+            });
+        },
+    });
+
     async function submitForm(data: insertCustomerSchemaType) {
-        console.log(data);
+        executeSave(data);
     }
 
     return (
         <div className="flex flex-col gap-1 sm:px-8">
+            <DisplayServerActionResponse result={saveResult} />
             <div>
                 <h2 className="text-2xl font-bold">
                     {customer?.id ? 'Edit' : 'New'} Customer{' '}
@@ -122,9 +171,7 @@ export default function CustomerForm({ customer }: Props) {
                             className="h-40"
                         />
 
-                        {isLoading ? (
-                            <p>Loading...</p>
-                        ) : isManager && customer?.id ? (
+                        {isManager && customer?.id ? (
                             <CheckboxWithLabel<insertCustomerSchemaType>
                                 fieldTitle="Active"
                                 nameInSchema="active"
@@ -138,15 +185,26 @@ export default function CustomerForm({ customer }: Props) {
                                 className="w-3/4"
                                 variant="default"
                                 title="Save"
+                                disabled={isSaving}
                             >
-                                Save
+                                {isSaving ? (
+                                    <>
+                                        <LoaderCircle className="animate-spin" />{' '}
+                                        Saving
+                                    </>
+                                ) : (
+                                    'Save'
+                                )}
                             </Button>
 
                             <Button
                                 type="button"
                                 variant="destructive"
                                 title="Reset"
-                                onClick={() => form.reset(defaultValues)}
+                                onClick={() => {
+                                    form.reset(defaultValues);
+                                    resetSaveAction();
+                                }}
                             >
                                 Reset
                             </Button>
